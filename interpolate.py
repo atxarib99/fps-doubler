@@ -8,7 +8,7 @@ from PIL import Image, ImageTk
 import tkinter as tk
 
 #quick debug switch to limit calc for testing
-debug = False
+debug = True
 
 #get video and length
 video = cv2.VideoCapture('STADIUM RACE.mp4')
@@ -49,40 +49,90 @@ final_err = 0
 count = 0
 #timer for computation performance
 starttime = 0
-while success:
-    #limit debug to 1000 frame calc
-    if debug and count > 1000:
-        break
-    starttime = time.time()
-    #grab primary frame
-    success, im_arr = video.read()
-    #grab target frame
-    success, target_im_arr = video.read()
-    #grab next frame
-    success,next_im_arr = video.read()
-    if not success:
-        break
-    
-    #calculate next frame from surrounding frames
-    calc_im_arr = (im_arr + next_im_arr) // 2
-    
-    #calculate error of calculated frame vs target
-    calc_err = np.sum(np.absolute(target_im_arr - calc_im_arr))
-    
-    #save frame if this is lowest or highest error seen
-    if max_err == 0 or calc_err > max_err:
-        max_err = calc_err
-        saveFrame(calc_im_arr, target_im_arr, 'max')
-    if min_err == 0 or calc_err < min_err:
-        min_err = calc_err
-        saveFrame(calc_im_arr, target_im_arr, 'min')
 
-    print(calc_err)
-    print(str(count) + '/' + str(length), end='\r')
-    #summate to final_err
-    final_err += calc_err
-    #grabbing 3 frames
-    count += 3
+#method that performs interpolation that allows number of reference frames to be defined
+def interpolate(framestouse=2):
+    #define globals needed
+    global video
+    global final_err
+    global count
+    global starttime
+    global success
+    global max_err
+    global min_err
+
+    #force frames to use to even number/ always up
+    while framestouse / 2 != framestouse // 2:
+        framestouse += 1
+        print("must use even number of frames to perform interpolation")
+
+
+    while success:
+        #internal count of frames used
+        framesused = 0
+
+        #limit debug to 1000 frame calc
+        if debug and count > 1000:
+            break
+        
+        starttime = time.time()
+        
+        #grab leading frames
+        leadingframes = []
+        for i in range(0, framestouse // 2):
+            success, im_arr = video.read()
+            leadingframes.append(im_arr)
+
+
+        #grab target frame
+        success, target_im_arr = video.read()
+        
+        #grab following frames
+        followingframes = []
+        for i in range(0, framestouse // 2):
+            success, im_arr = video.read()
+            followingframes.append(im_arr)
+        
+        #if we failedto grab a frame, we are done.
+        if not success:
+            break
+
+        #if we should weight the frames
+        #TODO: move this variable and pull from cmd line
+        #TODO: rethink this. want to interpolate from many frames, but weighting them just darkens each frame
+        weighting = False
+        if weighting:
+            #reverse list, doesnt matter for calc
+            leadingframes.reverse()
+            for i in range(0, len(leadingframes)):
+                leadingframes[i] = leadingframes[i] * (.5 ** i)
+             
+            for i in range(0, len(followingframes)):
+                leadingframes[i] = followingframes[i] * (.5 ** i)
+             
+
+        #calculate next frame from surrounding frames
+        calc_im_arr = (sum(leadingframes) + sum(followingframes)) // framestouse
+        
+        #calculate error of calculated frame vs target
+        calc_err = np.sum(np.absolute(target_im_arr - calc_im_arr))
+        
+        #save frame if this is lowest or highest error seen
+        if max_err == 0 or calc_err > max_err:
+            max_err = calc_err
+            saveFrame(calc_im_arr, target_im_arr, 'max')
+        if min_err == 0 or calc_err < min_err:
+            min_err = calc_err
+            saveFrame(calc_im_arr, target_im_arr, 'min')
+
+        print(calc_err)
+        print(str(count) + '/' + str(length), end='\r')
+        #summate to final_err
+        final_err += calc_err
+        #increment usedframes
+        count += (framestouse + 1)
+
+interpolate()
 
 #average error over number of frames
 #hmm should this be over calculated frames? instead of total frames? probably.
